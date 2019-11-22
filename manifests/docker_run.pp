@@ -21,9 +21,17 @@ define sunet::docker_run(
   String $ensure             = 'present',
   $extra_parameters          = [],  # should be array of strings, but need to fix usage first
   Hash[String, String] $extra_systemd_parameters = {},
+  Boolean $uid_git_consistency = true,
 ) {
   if $use_unbound {
     warning("docker-unbound is deprecated, container name resolution should continue to work using docker network with DNS")
+  }
+
+  if $uid_git_consistency {
+    $volumes = concat($volumes, [
+                                 '/etc/passwd:/etc/passwd:ro',  # uid consistency
+                                 '/etc/group:/etc/group:ro',    # gid consistency
+                                 ])
   }
 
   # Use start_on for docker::run $depends, unless the new argument 'depends' is given
@@ -47,10 +55,7 @@ define sunet::docker_run(
 
   docker::run { $name :
     image              => $image_tag,
-    volumes            => flatten([$volumes,
-                                   '/etc/passwd:/etc/passwd:ro',  # uid consistency
-                                   '/etc/group:/etc/group:ro',    # gid consistency
-                                   ]),
+    volumes            => $volumes,
     hostname           => $hostname,
     ports              => $ports,
     expose             => $expose,
