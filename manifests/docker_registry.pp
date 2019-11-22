@@ -20,12 +20,45 @@ class sunet::docker_registry (
         ensure  => absent,
     }
 
-    sunet::docker_compose {'docker-registry':
-        content          => template('sunet/docker_registry/docker-compose_docker_registry.yml.erb'),
-        service_name     => 'docker-registry',
-        compose_dir      => "${registry_conf_basedir}",
-        compose_filename => 'docker-compose_docker_registry.yml',
-        description      => 'docker-registry service',
+    file { "${registry_conf_basedir}/docker-compose_docker_registry.yml":
+        ensure  => absent,
+    }
+
+    file { "${registry_conf_basedir}":
+        ensure  => absent,
+    }
+
+    sunet::docker_run { 'registry':
+      image               => 'registry',
+      imagetag            => $registry_tag,
+      uid_git_consistency => false,
+      ports               => '127.0.0.1:5000:5000',
+      volumes             => ["/var/lib/registry:/var/lib/registry:rw"],
+      environment         => ["REGISTRY_STORAGE_DELETE_ENABLED=true"],
+    }
+
+    sunet::docker_run { 'registry-auth':
+      # Pull this from the "back-door" via the registry, so we can always get it
+      image               => 'localhost:5000/sunet/docker-registry-auth',
+      imagetag            => 'stable',
+      uid_git_consistency => false
+      ports               => '443:443',
+      volumes             => [
+            "/etc/dehydrated/certs/$fqdn.key:/etc/ssl/private/$registry_public_hostname.key:ro",
+            "/etc/dehydrated/certs/$fqdn.crt:/etc/ssl/certs/$registry_public_hostname.crt:ro",
+            "/etc/dehydrated/certs/$fqdn-chain.crt:/etc/ssl/certs/$registry_public_hostname-chain.crt:ro",
+            "/etc/ssl/certs/infra.crt:/etc/ssl/certs/$registry_public_hostname-client-ca.crt:ro",
+      ],
+      environment         => ["SERVER_NAME=$registry_public_hostname"],
+      extra_parameters    => ["--link=registry"],
+      depend              => ["registry"],
+    }
+
+    sunet::docker_run { 'always-https':
+      image               => "docker.sunet.se/always-https",
+      uid_git_consistency => false,
+      ports               => "80:80",
+      environment         => ["ACME_URL=http://acme-c.sunet.se"],
     }
 
     sunet::scriptherder::cronjob { 'check_for_updated_docker_image':
